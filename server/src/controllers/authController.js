@@ -3,9 +3,9 @@ const path = require('path');
 const fs = require('fs');
 const User = require('../models/User');
 
-const generateToken = (id) => {
+const generateToken = (id, role) => {
   return jwt.sign(
-    { id },
+    { id, role },
     process.env.JWT_SECRET,
     { expiresIn: '30d' }
   );
@@ -54,7 +54,7 @@ const registerUser = async (req, res, next) => {
       businessLogo: ''
     });
 
-    const token = generateToken(user._id);
+    const token = generateToken(user._id, user.role);
     const userPayload = formatUserPayload(user);
 
     res.status(201).json({
@@ -88,7 +88,7 @@ const loginUser = async (req, res, next) => {
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
     }
 
-    const token = generateToken(user._id);
+    const token = generateToken(user._id, user.role);
     const userPayload = formatUserPayload(user);
 
     res.json({

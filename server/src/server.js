@@ -5,6 +5,7 @@ dotenv.config({ path: path.join(__dirname, '../.env') });
 
 const app = require('./app');
 const connectDB = require('./config/db');
+const initAdmin = require('./utils/initAdmin');
 
 const PORT = process.env.PORT || 5000;
 
@@ -13,6 +14,7 @@ let server = null;
 const startServer = async () => {
   try {
     await connectDB();
+    await initAdmin();
 
     server = app.listen(PORT, () => {
       console.log(`==================================================`);
