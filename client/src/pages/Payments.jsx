@@ -5,7 +5,8 @@ import { useToast } from '../context/ToastContext';
 import ConfirmDialog from '../components/ConfirmDialog';
 import LoadingSpinner from '../components/LoadingSpinner';
 import EmptyState from '../components/EmptyState';
-import { CreditCard, Trash2, Calendar, FileText, User } from 'lucide-react';
+import Modal from '../components/Modal';
+import { CreditCard, Trash2, Calendar, FileText, User, Pencil } from 'lucide-react';
 
 const Payments = () => {
   const [payments, setPayments] = useState([]);
@@ -16,6 +17,14 @@ const Payments = () => {
   // Delete State
   const [deleteId, setDeleteId] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Edit State
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingPayment, setEditingPayment] = useState(null);
+  const [editAmount, setEditAmount] = useState('');
+  const [editDate, setEditDate] = useState('');
+  const [editNote, setEditNote] = useState('');
+  const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
 
   const { showToast } = useToast();
 
@@ -38,6 +47,39 @@ const Payments = () => {
       showToast('Failed to load cash received history', 'error');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleOpenEdit = (p) => {
+    setEditingPayment(p);
+    setEditAmount(p.amount);
+    setEditDate(p.paymentDate ? p.paymentDate.split('T')[0] : new Date().toISOString().split('T')[0]);
+    setEditNote(p.note || '');
+    setIsEditModalOpen(true);
+  };
+
+  const handleUpdatePayment = async (e) => {
+    e.preventDefault();
+    if (!editingPayment || !editAmount) return;
+
+    try {
+      setIsSubmittingEdit(true);
+      const res = await axiosClient.put(`/payments/${editingPayment._id}`, {
+        amount: Number(editAmount),
+        paymentDate: editDate,
+        note: editNote
+      });
+
+      if (res.data.success) {
+        showToast('Cash received record updated successfully!', 'success');
+        setIsEditModalOpen(false);
+        setEditingPayment(null);
+        fetchPayments();
+      }
+    } catch (err) {
+      showToast(err.response?.data?.message || 'Failed to update cash record', 'error');
+    } finally {
+      setIsSubmittingEdit(false);
     }
   };
 
@@ -156,13 +198,26 @@ const Payments = () => {
                     </td>
                     <td style={{ color: 'var(--text-subtle)', maxWidth: '250px' }}>{p.note || '—'}</td>
                     <td style={{ textAlign: 'right' }}>
-                      <button
-                        className="btn btn-danger btn-sm"
-                        onClick={() => setDeleteId(p._id)}
-                        title="Delete Cash Entry"
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                      <div style={{ display: 'inline-flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => handleOpenEdit(p)}
+                          title="Edit Cash Received"
+                          style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem', gap: '4px' }}
+                        >
+                          <Pencil size={12} /> Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-danger btn-sm"
+                          onClick={() => setDeleteId(p._id)}
+                          title="Delete Cash Entry"
+                          style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -206,13 +261,22 @@ const Payments = () => {
                   </div>
                 )}
 
-                <div className="mobile-card-actions">
+                <div className="mobile-card-actions" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
                   <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => handleOpenEdit(p)}
+                    style={{ justifyContent: 'center', gap: '4px' }}
+                  >
+                    <Pencil size={14} /> Edit
+                  </button>
+                  <button
+                    type="button"
                     className="btn btn-danger btn-sm"
                     onClick={() => setDeleteId(p._id)}
-                    style={{ width: '100%', justifyContent: 'center' }}
+                    style={{ justifyContent: 'center' }}
                   >
-                    <Trash2 size={14} /> Delete Entry
+                    <Trash2 size={14} /> Delete
                   </button>
                 </div>
               </div>
@@ -220,6 +284,76 @@ const Payments = () => {
           </div>
         </>
       )}
+
+      {/* Edit Cash Received Modal */}
+      <Modal
+        isOpen={isEditModalOpen}
+        onClose={() => {
+          setIsEditModalOpen(false);
+          setEditingPayment(null);
+        }}
+        title="Edit Cash Received Transaction"
+      >
+        <form onSubmit={handleUpdatePayment}>
+          {editingPayment?.invoiceId && (
+            <div style={{ marginBottom: '1rem', padding: '0.75rem', borderRadius: '8px', background: 'var(--bg-card, #f8fafc)', border: '1px solid var(--border)', fontSize: '0.875rem' }}>
+              <div><strong>Invoice:</strong> {editingPayment.invoiceId.invoiceNumber}</div>
+              <div><strong>Customer:</strong> {editingPayment.customerId?.name || 'Customer'}</div>
+            </div>
+          )}
+
+          <div className="form-group">
+            <label className="form-label">Cash Received Amount (₹) *</label>
+            <input
+              type="number"
+              min="0.01"
+              step="any"
+              className="form-input"
+              value={editAmount}
+              onChange={(e) => setEditAmount(e.target.value)}
+              required
+            />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Received Date *</label>
+            <input
+              type="date"
+              className="form-input"
+              value={editDate}
+              onChange={(e) => setEditDate(e.target.value)}
+              required
+            />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Note / Remark</label>
+            <input
+              type="text"
+              className="form-input"
+              value={editNote}
+              onChange={(e) => setEditNote(e.target.value)}
+              placeholder="e.g. Received in cash"
+            />
+          </div>
+
+          <div className="modal-footer" style={{ paddingBottom: 0, paddingRight: 0 }}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => {
+                setIsEditModalOpen(false);
+                setEditingPayment(null);
+              }}
+            >
+              Cancel
+            </button>
+            <button type="submit" className="btn btn-primary" disabled={isSubmittingEdit}>
+              {isSubmittingEdit ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+        </form>
+      </Modal>
 
       {/* Delete Cash Record Confirm */}
       <ConfirmDialog

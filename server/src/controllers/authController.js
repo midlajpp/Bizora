@@ -22,7 +22,11 @@ const formatUserPayload = (user) => ({
   businessAddress: user.businessAddress || '',
   businessPhone: user.businessPhone || '',
   businessEmail: user.businessEmail || '',
-  businessLogo: user.businessLogo || ''
+  businessLogo: user.businessLogo || '',
+  googleDrive: {
+    isConnected: user.googleDrive?.isConnected || false,
+    email: user.googleDrive?.email || ''
+  }
 });
 
 // @desc    Register a new user

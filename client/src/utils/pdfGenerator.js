@@ -58,14 +58,14 @@ export const optimizeContainerLogos = async (container) => {
         continue;
       }
 
-      // Check if image is larger than 2x retina display box (280x140)
+      // Check if image is larger than 2x retina display box (600x190 for 300x95 box)
       const natW = img.naturalWidth || img.width || 0;
       const natH = img.naturalHeight || img.height || 0;
 
-      if (natW > 280 || natH > 140) {
+      if (natW > 600 || natH > 190) {
         const canvas = document.createElement('canvas');
-        const maxW = 280;
-        const maxH = 140;
+        const maxW = 600;
+        const maxH = 190;
         const ratio = Math.min(maxW / natW, maxH / natH, 1);
         const targetW = Math.max(1, Math.round(natW * ratio));
         const targetH = Math.max(1, Math.round(natH * ratio));
@@ -77,7 +77,7 @@ export const optimizeContainerLogos = async (container) => {
           ctx.imageSmoothingEnabled = true;
           ctx.imageSmoothingQuality = 'high';
           ctx.drawImage(img, 0, 0, targetW, targetH);
-          // Keep PNG for logo transparency, but now constrained to max 280x140 (~15-30KB)
+          // Keep PNG for transparency, but now constrained to max 600x190 (~20-40KB)
           const optimizedDataUrl = canvas.toDataURL('image/png');
           cache.set(src, optimizedDataUrl);
           img.src = optimizedDataUrl;

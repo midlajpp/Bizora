@@ -17,6 +17,7 @@ const invoiceRoutes = require('./routes/invoiceRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const reportRoutes = require('./routes/reportRoutes');
 const adminRoutes = require('./routes/adminRoutes');
+const googleDriveRoutes = require('./routes/googleDriveRoutes');
 
 const app = express();
 
@@ -82,6 +83,7 @@ app.use('/api/invoices', invoiceRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/google-drive', googleDriveRoutes);
 
 // Centralized Error Handler
 app.use(errorHandler);

@@ -102,6 +102,23 @@ const invoiceSchema = new mongoose.Schema(
     notes: {
       type: String,
       default: ''
+    },
+    googleDriveFile: {
+      fileId: {
+        type: String,
+        default: ''
+      },
+      fileName: {
+        type: String,
+        default: ''
+      },
+      webViewLink: {
+        type: String,
+        default: ''
+      },
+      uploadedAt: {
+        type: Date
+      }
     }
   },
   {

@@ -123,21 +123,132 @@ const getPaymentById = async (req, res, next) => {
   }
 };
 
+// @desc    Update a cash record & adjust invoice stats
+// @route   PUT /api/payments/:id
+// @access  Private
+const updatePayment = async (req, res, next) => {
+  try {
+    let query = { _id: req.params.id };
+    if (req.user.role !== 'admin') {
+      query.userId = req.user._id;
+    }
+
+    const payment = await Payment.findOne(query);
+    if (!payment) {
+      return res.status(404).json({ success: false, message: 'Cash record not found' });
+    }
+
+    const { amount, paymentDate, note } = req.body;
+    const numAmount = Number(amount);
+
+    if (isNaN(numAmount) || numAmount <= 0) {
+      return res.status(400).json({ success: false, message: 'Cash received amount must be greater than zero' });
+    }
+
+    // Find invoice associated with this payment
+    let invoiceQuery = { _id: payment.invoiceId };
+    if (req.user.role !== 'admin') {
+      invoiceQuery.userId = req.user._id;
+    }
+    const invoice = await Invoice.findOne(invoiceQuery);
+
+    if (!invoice) {
+      return res.status(404).json({ success: false, message: 'Associated invoice not found' });
+    }
+
+    if (invoice.paymentStatus === 'Cancelled') {
+      return res.status(400).json({ success: false, message: 'Cannot edit cash for a cancelled invoice' });
+    }
+
+    // Sum of all other payments for this invoice
+    const otherPayments = await Payment.find({
+      invoiceId: invoice._id,
+      _id: { $ne: payment._id }
+    });
+    const otherPaidSum = otherPayments.reduce((sum, p) => sum + p.amount, 0);
+    const newTotalPaid = Math.round((otherPaidSum + numAmount) * 100) / 100;
+
+    // Validate that new total does not exceed invoice total
+    if (newTotalPaid > invoice.total) {
+      const maxAllowed = Math.max(0, Math.round((invoice.total - otherPaidSum) * 100) / 100);
+      return res.status(400).json({
+        success: false,
+        message: `Total cash received cannot exceed invoice total (₹${invoice.total}). Maximum allowed amount for this transaction is ₹${maxAllowed}`
+      });
+    }
+
+    // Update payment record
+    payment.amount = numAmount;
+    if (paymentDate) {
+      payment.paymentDate = new Date(paymentDate);
+    }
+    if (note !== undefined) {
+      payment.note = note;
+    }
+    await payment.save();
+
+    // Recalculate invoice stats
+    const newPendingAmount = Math.max(0, Math.round((invoice.total - newTotalPaid) * 100) / 100);
+    let newStatus = 'Pending';
+    if (newPendingAmount === 0 || newTotalPaid >= invoice.total) {
+      newStatus = 'Paid';
+    } else if (newTotalPaid > 0) {
+      newStatus = 'Partially Paid';
+    }
+
+    invoice.paidAmount = newTotalPaid;
+    invoice.pendingAmount = newPendingAmount;
+    invoice.paymentStatus = newStatus;
+    await invoice.save();
+
+    const populatedPayment = await Payment.findById(payment._id)
+      .populate('invoiceId', 'invoiceNumber total pendingAmount paidAmount paymentStatus')
+      .populate('customerId', 'name phone email');
+
+    res.json({
+      success: true,
+      message: 'Cash received record updated successfully',
+      data: populatedPayment,
+      invoice: {
+        _id: invoice._id,
+        paidAmount: invoice.paidAmount,
+        pendingAmount: invoice.pendingAmount,
+        paymentStatus: invoice.paymentStatus
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // @desc    Delete a cash record & adjust invoice stats
 // @route   DELETE /api/payments/:id
 // @access  Private
 const deletePayment = async (req, res, next) => {
   try {
-    const payment = await Payment.findOne({ _id: req.params.id, userId: req.user._id });
+    let query = { _id: req.params.id };
+    if (req.user.role !== 'admin') {
+      query.userId = req.user._id;
+    }
 
+    const payment = await Payment.findOne(query);
     if (!payment) {
       return res.status(404).json({ success: false, message: 'Cash record not found' });
     }
 
     // Find invoice to revert amounts
-    const invoice = await Invoice.findOne({ _id: payment.invoiceId, userId: req.user._id });
+    let invoiceQuery = { _id: payment.invoiceId };
+    if (req.user.role !== 'admin') {
+      invoiceQuery.userId = req.user._id;
+    }
+    const invoice = await Invoice.findOne(invoiceQuery);
+
     if (invoice) {
-      const revertedPaid = Math.max(0, invoice.paidAmount - payment.amount);
+      const remainingPayments = await Payment.find({
+        invoiceId: invoice._id,
+        _id: { $ne: payment._id }
+      });
+      const revertedPaid = remainingPayments.reduce((sum, p) => sum + p.amount, 0);
       const revertedPending = Math.max(0, Math.round((invoice.total - revertedPaid) * 100) / 100);
 
       let revertedStatus = 'Pending';
@@ -168,5 +279,6 @@ module.exports = {
   getPayments,
   createPayment,
   getPaymentById,
+  updatePayment,
   deletePayment
 };

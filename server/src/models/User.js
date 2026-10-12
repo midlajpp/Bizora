@@ -49,6 +49,31 @@ const userSchema = new mongoose.Schema(
     businessLogo: {
       type: String,
       default: ''
+    },
+    googleDrive: {
+      isConnected: {
+        type: Boolean,
+        default: false
+      },
+      email: {
+        type: String,
+        default: ''
+      },
+      accessToken: {
+        type: String,
+        select: false
+      },
+      refreshToken: {
+        type: String,
+        select: false
+      },
+      expiryDate: {
+        type: Number,
+        select: false
+      },
+      connectedAt: {
+        type: Date
+      }
     }
   },
   {

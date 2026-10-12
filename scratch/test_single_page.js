@@ -1,6 +1,6 @@
 const CdpClient = require('./cdpClient');
 
-async function testSingle() {
+async function testVerification() {
   const cdp = new CdpClient();
   await cdp.launch();
   await cdp.init();
@@ -20,28 +20,54 @@ async function testSingle() {
     localStorage.setItem('bizora_user', ${JSON.stringify(JSON.stringify(tokenRes.user || tokenRes.data))});
   `);
 
-  await cdp.navigate('http://127.0.0.1:5173/invoices/6ac14ab4fb6a7056a39ba7ab');
-  await new Promise(r => setTimeout(r, 2000));
+  const invoicesToTest = [
+    { id: '6ac14ab4fb6a7056a39ba7ab', name: 'INV-0005 (1 Item)' },
+    { id: '6acc565e73db23aab3464a16', name: 'Multi-Item Invoice (16 Items)' }
+  ];
 
-  const res = await cdp.evaluate(`
-    (async () => {
-      const { generateLegacyUnoptimizedPdf, generateOptimizedInvoicePdf } = await import('/src/utils/pdfGenerator.js');
-      const cont = document.querySelector('[style*="position: fixed"]') || document.querySelector('.invoice-paper-pages-container');
-      const oldRes = await generateLegacyUnoptimizedPdf(cont, { invoiceNumber: 'INV-0005' });
-      const newRes = await generateOptimizedInvoicePdf(cont, { invoiceNumber: 'INV-0005' });
-      return {
-        beforeBytes: oldRes.byteSize,
-        beforeFormatted: oldRes.formattedSize,
-        afterBytes: newRes.byteSize,
-        afterFormatted: newRes.formattedSize,
-        pages: newRes.pagesCount,
-        reduction: ((1 - (newRes.byteSize / oldRes.byteSize)) * 100).toFixed(1) + '%'
-      };
-    })()
-  `);
+  for (const inv of invoicesToTest) {
+    console.log(`\n========================================`);
+    console.log(`Testing Invoice: ${inv.name}`);
+    console.log(`========================================`);
 
-  console.log('INV-0005 (1 Item) Results:', JSON.stringify(res, null, 2));
+    await cdp.navigate(`http://127.0.0.1:5173/invoices/${inv.id}`);
+    await new Promise(r => setTimeout(r, 2500));
+
+    const check = await cdp.evaluate(`
+      (async () => {
+        const previewImages = document.querySelectorAll('.invoice-paper-page img');
+        const pdfContainerImages = document.querySelectorAll('[style*="position: fixed"] img');
+        const previewPageCount = document.querySelectorAll('.invoice-paper-page').length;
+        
+        const { generateOptimizedInvoicePdf } = await import('/src/utils/pdfGenerator.js');
+        const cont = document.querySelector('[style*="position: fixed"]') || document.querySelector('.invoice-paper-pages-container');
+        const pdfRes = await generateOptimizedInvoicePdf(cont, { invoiceNumber: '${inv.name}' });
+
+        // Check text content
+        const page1Text = document.querySelector('.invoice-paper-page')?.innerText || '';
+        const hasBusinessName = page1Text.includes('BIZORA') || page1Text.includes('Midlaj');
+        const hasInvoiceTitle = page1Text.includes('INVOICE');
+        const hasGrandTotal = page1Text.includes('Grand Total') || page1Text.includes('Total');
+
+        return {
+          previewImagesCount: previewImages.length,
+          pdfContainerImagesCount: pdfContainerImages.length,
+          previewPageCount,
+          pdfPagesCount: pdfRes.pagesCount,
+          pdfSizeBytes: pdfRes.byteSize,
+          pdfSizeFormatted: pdfRes.formattedSize,
+          isUnder1MB: pdfRes.byteSize < 1048576,
+          hasBusinessName,
+          hasInvoiceTitle,
+          hasGrandTotal
+        };
+      })()
+    `);
+
+    console.log('Result:', JSON.stringify(check, null, 2));
+  }
+
   await cdp.close();
 }
 
-testSingle().catch(console.error);
+testVerification().catch(console.error);

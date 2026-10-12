@@ -192,6 +192,11 @@ const App = () => {
                 }
               />
 
+              <Route
+                path="/settings"
+                element={<Navigate to="/profile" replace />}
+              />
+
               {/* Admin Protected Routes */}
               <Route
                 path="/admin/dashboard"

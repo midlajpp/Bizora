@@ -39,18 +39,7 @@ const initAdmin = async () => {
         await existingRoleAdmin.save();
         console.log(`[Admin Init] Updated existing admin account email to ${normalizedEmail}`);
       } else {
-        await User.create({
-          name: 'System Admin',
-          email: normalizedEmail,
-          password: adminPassword, // Triggers pre('save') bcrypt hash
-          role: 'admin',
-          phone: '',
-          businessName: 'Bizora Admin HQ',
-          businessAddress: '',
-          businessPhone: '',
-          businessEmail: normalizedEmail
-        });
-        console.log(`[Admin Init] Production Admin account created successfully for ${normalizedEmail}`);
+        console.log(`[Admin Init] Automatic admin account creation is disabled. No new admin account created.`);
       }
     }
   } catch (err) {

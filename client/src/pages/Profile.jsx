@@ -1,14 +1,36 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import axiosClient from '../api/axiosClient';
 import { getLogoUrl } from '../utils/logoUrl';
-import { User, Building, Lock, Mail, Phone, MapPin, Save, Shield, Upload, Trash2, Image as ImageIcon } from 'lucide-react';
+import ConfirmDialog from '../components/ConfirmDialog';
+import {
+  User,
+  Building,
+  Lock,
+  Mail,
+  Phone,
+  MapPin,
+  Save,
+  Shield,
+  Upload,
+  Trash2,
+  Image as ImageIcon,
+  Cloud,
+  CheckCircle,
+  AlertCircle,
+  ExternalLink,
+  RefreshCw,
+  Unlink
+} from 'lucide-react';
 
 const Profile = () => {
   const { user, updateProfileState, isAdmin } = useAuth();
   const { showToast } = useToast();
   const fileInputRef = useRef(null);
+  const location = useLocation();
+  const navigate = useNavigate();
 
   const [profileForm, setProfileForm] = useState({
     name: user?.name || '',
@@ -29,6 +51,82 @@ const Profile = () => {
   const [isChangingPass, setIsChangingPass] = useState(false);
   const [isUploadingLogo, setIsUploadingLogo] = useState(false);
   const [isRemovingLogo, setIsRemovingLogo] = useState(false);
+
+  // Google Drive state
+  const [driveStatus, setDriveStatus] = useState({
+    isConnected: user?.googleDrive?.isConnected || false,
+    email: user?.googleDrive?.email || ''
+  });
+  const [loadingDriveStatus, setLoadingDriveStatus] = useState(true);
+  const [isConnectingDrive, setIsConnectingDrive] = useState(false);
+  const [isDisconnectingDrive, setIsDisconnectingDrive] = useState(false);
+  const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
+
+  useEffect(() => {
+    fetchDriveStatus();
+
+    // Check query params from OAuth redirect
+    const params = new URLSearchParams(location.search);
+    if (params.get('drive') === 'connected') {
+      showToast('Google Drive connected successfully!', 'success');
+      navigate('/profile', { replace: true });
+    } else if (params.get('drive_error')) {
+      showToast(decodeURIComponent(params.get('drive_error')), 'error');
+      navigate('/profile', { replace: true });
+    }
+  }, [location.search]);
+
+  const fetchDriveStatus = async () => {
+    try {
+      setLoadingDriveStatus(true);
+      const res = await axiosClient.get('/google-drive/status');
+      if (res.data.success) {
+        setDriveStatus(res.data.data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch Drive status:', err);
+    } finally {
+      setLoadingDriveStatus(false);
+    }
+  };
+
+  const handleConnectDrive = async () => {
+    try {
+      setIsConnectingDrive(true);
+      const res = await axiosClient.get('/google-drive/auth-url');
+      if (res.data.success && res.data.data.authUrl) {
+        window.location.href = res.data.data.authUrl;
+      } else {
+        showToast('Failed to start Google Drive authorization', 'error');
+      }
+    } catch (err) {
+      showToast(err.response?.data?.message || 'Failed to initiate Google Drive connection', 'error');
+    } finally {
+      setIsConnectingDrive(false);
+    }
+  };
+
+  const handleDisconnectDrive = async () => {
+    try {
+      setIsDisconnectingDrive(true);
+      const res = await axiosClient.post('/google-drive/disconnect');
+      if (res.data.success) {
+        showToast('Google Drive disconnected successfully', 'success');
+        setDriveStatus({ isConnected: false, email: '' });
+        setShowDisconnectConfirm(false);
+        if (user) {
+          updateProfileState({
+            ...user,
+            googleDrive: { isConnected: false, email: '' }
+          });
+        }
+      }
+    } catch (err) {
+      showToast(err.response?.data?.message || 'Failed to disconnect Google Drive', 'error');
+    } finally {
+      setIsDisconnectingDrive(false);
+    }
+  };
 
   const handleProfileSubmit = async (e) => {
     e.preventDefault();
@@ -331,6 +429,111 @@ const Profile = () => {
             </div>
           </div>
 
+          {/* GOOGLE DRIVE CLOUD STORAGE CARD */}
+          <div className="card" id="google-drive" style={{ scrollMarginTop: '2rem' }}>
+            <div className="card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
+              <h3 style={{ fontSize: '1.125rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Cloud size={20} color="#3b82f6" /> Google Drive Cloud Storage
+              </h3>
+              {loadingDriveStatus ? (
+                <span className="badge" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-muted)' }}>Checking...</span>
+              ) : driveStatus.isConnected ? (
+                <span className="badge" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10b981', display: 'inline-flex', alignItems: 'center', gap: '4px', fontWeight: 700 }}>
+                  <CheckCircle size={12} /> Connected
+                </span>
+              ) : (
+                <span className="badge" style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', display: 'inline-flex', alignItems: 'center', gap: '4px', fontWeight: 700 }}>
+                  <AlertCircle size={12} /> Not Connected
+                </span>
+              )}
+            </div>
+
+            <p style={{ fontSize: '0.875rem', color: 'var(--text-subtle)', lineHeight: 1.5, marginBottom: '1.25rem' }}>
+              Connect your Google Drive account to automatically backup and store invoice PDFs in your personal cloud. PDFs are organized in a dedicated <code style={{ color: 'var(--primary)' }}>Bizora Invoices / {'{Year}'}</code> folder hierarchy.
+            </p>
+
+            {driveStatus.isConnected ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div style={{
+                  padding: '1rem',
+                  borderRadius: 'var(--radius-md)',
+                  background: 'var(--bg-tertiary)',
+                  border: '1px solid var(--border-color)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '1rem',
+                  flexWrap: 'wrap'
+                }}>
+                  <div>
+                    <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 700 }}>
+                      Connected Google Account
+                    </div>
+                    <div style={{ fontSize: '0.9375rem', fontWeight: 700, color: 'var(--text-main)', marginTop: '2px' }}>
+                      {driveStatus.email || 'Google Account Active'}
+                    </div>
+                  </div>
+                  <a
+                    href="https://drive.google.com"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-outline btn-sm"
+                    style={{ gap: '4px', fontSize: '0.75rem' }}
+                  >
+                    Open Drive <ExternalLink size={12} />
+                  </a>
+                </div>
+
+                <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    className="btn btn-outline btn-sm"
+                    onClick={fetchDriveStatus}
+                    disabled={loadingDriveStatus}
+                    title="Refresh connection status"
+                  >
+                    <RefreshCw size={14} className={loadingDriveStatus ? 'animate-spin' : ''} /> Check Status
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-danger btn-sm"
+                    onClick={() => setShowDisconnectConfirm(true)}
+                    disabled={isDisconnectingDrive}
+                    style={{ gap: '4px' }}
+                  >
+                    <Unlink size={14} /> Disconnect Drive
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <div style={{
+                  padding: '1rem',
+                  borderRadius: 'var(--radius-md)',
+                  background: 'rgba(59, 130, 246, 0.05)',
+                  border: '1px dashed rgba(59, 130, 246, 0.3)',
+                  marginBottom: '1.25rem',
+                  fontSize: '0.8125rem',
+                  color: 'var(--text-subtle)',
+                  lineHeight: 1.5
+                }}>
+                  🔒 <strong>Privacy & Security:</strong> Bizora uses the official Google OAuth 2.0 flow with restricted scope (<code>drive.file</code>). We only access files created by Bizora in your Drive.
+                </div>
+
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={handleConnectDrive}
+                  disabled={isConnectingDrive}
+                  style={{ width: '100%', justifyContent: 'center', gap: '8px', background: '#4285F4', borderColor: '#4285F4' }}
+                >
+                  <Cloud size={16} />
+                  {isConnectingDrive ? 'Opening Google Authorization...' : 'Connect Google Drive'}
+                </button>
+              </div>
+            )}
+          </div>
+
           {/* CHANGE PASSWORD CARD */}
           <div className="card">
             <div className="card-header">
@@ -381,6 +584,16 @@ const Profile = () => {
 
         </div>
       </div>
+
+      {/* Disconnect Google Drive Confirm */}
+      <ConfirmDialog
+        isOpen={showDisconnectConfirm}
+        onClose={() => setShowDisconnectConfirm(false)}
+        onConfirm={handleDisconnectDrive}
+        title="Disconnect Google Drive"
+        message="Are you sure you want to disconnect your Google Drive? You will no longer be able to save new invoice PDFs directly to your Google Drive until you reconnect."
+        isLoading={isDisconnectingDrive}
+      />
 
       <style>{`
         @media (max-width: 900px) {

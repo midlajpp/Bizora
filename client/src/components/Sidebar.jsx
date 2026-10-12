@@ -37,7 +37,7 @@ const Sidebar = ({ isOpen, onClose }) => {
     { name: 'Cash Received', path: '/payments', icon: CreditCard },
     { name: 'Income', path: '/income', icon: TrendingUp },
     { name: 'Reports', path: '/reports', icon: BarChart3 },
-    { name: 'Profile', path: '/profile', icon: User }
+    { name: 'Settings', path: '/profile', icon: Settings }
   ];
 
   const adminNavItems = [

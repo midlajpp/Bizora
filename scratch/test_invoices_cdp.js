@@ -18,7 +18,7 @@ async function loginAdmin() {
   return { token: data.token, user: data.user || data.data };
 }
 
-async function createMultiPageTestInvoice(itemCount = 16) {
+async function getExistingTestInvoices() {
   const dotenv = require('../server/node_modules/dotenv');
   dotenv.config({ path: path.join(__dirname, '../server/.env') });
   const mongoose = require('../server/node_modules/mongoose');
@@ -27,95 +27,9 @@ async function createMultiPageTestInvoice(itemCount = 16) {
   }
 
   const Invoice = require('../server/src/models/Invoice');
-  const Customer = require('../server/src/models/Customer');
-  const User = require('../server/src/models/User');
-
-  // Find regular user who owns invoices
-  const user = await User.findOne({ email: 'midlajpp018@gmail.com' }) || await User.findOne({ role: 'user' });
-  if (!user) throw new Error('No user found');
-
-  // Attach logo to this user
-  const logosDir = path.join(__dirname, '../server/uploads/logos');
-  if (fs.existsSync(logosDir)) {
-    const files = fs.readdirSync(logosDir);
-    if (files.length > 0) {
-      user.businessLogo = `/uploads/logos/${files[0]}`;
-      await user.save();
-      console.log(`[Setup] Set businessLogo on user ${user.email}: ${user.businessLogo}`);
-    }
-  }
-
-  // Find or create customer
-  let customer = await Customer.findOne({ userId: user._id });
-  if (!customer) {
-    customer = await Customer.create({
-      userId: user._id,
-      name: 'Global Enterprise Corp',
-      email: 'accounts@globalenterprise.com',
-      phone: '+91 98450 12345',
-      address: 'Plot 42, Tech Cyber City, Bangalore, Karnataka'
-    });
-  }
-
-  const items = [];
-  for (let i = 1; i <= itemCount; i++) {
-    items.push({
-      serviceName: `Cloud Infrastructure Service #${i} - Monthly Dedicated Compute`,
-      description: `High performance compute node with NVMe storage, 32GB RAM, and automated daily backups for cluster node ${i}.`,
-      qty: (i % 3) + 1,
-      rate: 1500 + i * 100,
-      amount: ((i % 3) + 1) * (1500 + i * 100)
-    });
-  }
-
-  const subtotal = items.reduce((sum, it) => sum + it.amount, 0);
-  const discount = 500;
-  const total = subtotal - discount;
-
-  const invoice = await Invoice.create({
-    userId: user._id,
-    customerId: customer._id,
-    invoiceNumber: `TEST-INV-${Date.now().toString().slice(-4)}`,
-    invoiceDate: new Date(),
-    dueDate: new Date(Date.now() + 15 * 86400000),
-    items,
-    subtotal,
-    discount,
-    total,
-    notes: 'Payment terms: Net 15 days. Please make direct wire transfer or UPI to Bizora business account.',
-    paymentStatus: 'Pending',
-    paidAmount: 0,
-    pendingAmount: total
-  });
-
-  return invoice;
-}
-
-// Ensure business logo is set on admin profile so logo optimization is exercised
-async function setAdminLogoIfEmpty(token) {
-  const meRes = await fetch('http://127.0.0.1:5000/api/auth/me', {
-    headers: { 'Authorization': `Bearer ${token}` }
-  });
-  const meData = await meRes.json();
-  if (meData.data && !meData.data.businessLogo) {
-    // Check if there is an existing logo in uploads/logos
-    const logosDir = path.join(__dirname, '../server/uploads/logos');
-    if (fs.existsSync(logosDir)) {
-      const files = fs.readdirSync(logosDir);
-      if (files.length > 0) {
-        const logoRelPath = `/uploads/logos/${files[0]}`;
-        // Update user business logo directly in db
-        const dotenv = require('../server/node_modules/dotenv');
-        dotenv.config({ path: path.join(__dirname, '../server/.env') });
-        const mongoose = require('../server/node_modules/mongoose');
-        await mongoose.connect(process.env.MONGO_URI);
-        const User = require('../server/src/models/User');
-        await User.findByIdAndUpdate(meData.data._id, { businessLogo: logoRelPath });
-        await mongoose.disconnect();
-        console.log(`[Setup] Attached sample business logo ${logoRelPath} to admin account`);
-      }
-    }
-  }
+  // Strictly read-only query of existing invoices
+  const invoices = await Invoice.find({}).sort({ createdAt: -1 }).limit(5);
+  return invoices;
 }
 
 async function runTest() {
@@ -123,17 +37,14 @@ async function runTest() {
   const { token, user } = await loginAdmin();
   console.log(`Authenticated: ${user.email} (Role: ${user.role})`);
 
-  console.log('--- 2. Creating Multi-Page Test Invoice (16 items) ---');
-  const multiPageInvoice = await createMultiPageTestInvoice(16);
-  console.log(`Created multi-page invoice: ${multiPageInvoice.invoiceNumber} with ${multiPageInvoice.items.length} items (ID: ${multiPageInvoice._id})`);
+  console.log('--- 2. Fetching Existing Invoices (Read-Only) ---');
+  const existingInvoices = await getExistingTestInvoices();
+  console.log(`Found ${existingInvoices.length} existing production invoices for testing.`);
 
-  // Existing invoice INV-0001
-  const existingInvoiceId = '6abd60faad752c027de70b51';
-
-  const testInvoices = [
-    { label: 'INV-0001 (Existing 8 Items with Logo)', id: existingInvoiceId },
-    { label: `${multiPageInvoice.invoiceNumber} (Multi-Page 16 Items with Logo)`, id: multiPageInvoice._id }
-  ];
+  const testInvoices = existingInvoices.map(inv => ({
+    label: `${inv.invoiceNumber} (${inv.items ? inv.items.length : 0} items)`,
+    id: inv._id.toString()
+  }));
 
   console.log('--- 3. Launching Headless Chrome via CDP ---');
   const cdp = new CdpClient();
@@ -187,6 +98,13 @@ async function runTest() {
       document.querySelectorAll('.pdf-export-page').length || document.querySelectorAll('.invoice-paper-page').length
     `);
     console.log(`Rendered A4 Page Count: ${pageCount}`);
+    const logoStats = await cdp.evaluate(`
+      ({
+        previewLogoCount: document.querySelectorAll('.invoice-paper-page img').length,
+        pdfContainerLogoCount: document.querySelectorAll('[style*="position: fixed"] img').length
+      })
+    `);
+    console.log(`Invoice Preview Logos: ${logoStats.previewLogoCount}, Export Container Logos: ${logoStats.pdfContainerLogoCount}`);
 
     // Generate OLD (Before Optimization) PDF in the browser context
     console.log('Generating BEFORE (Unoptimized: scale 2, PNG, no text layer) PDF...');
@@ -262,7 +180,7 @@ async function runTest() {
   console.log(`Mobile Viewport Test (375x667 iPhone SE)`);
   console.log(`======================================================`);
   await cdp.setViewport(375, 667, true);
-  await cdp.navigate(`http://127.0.0.1:5173/invoices/${existingInvoiceId}`);
+  await cdp.navigate(`http://127.0.0.1:5173/invoices/${testInvoices[0].id}`);
   await new Promise(r => setTimeout(r, 1500));
 
   const mobileRes = await cdp.evaluate(`

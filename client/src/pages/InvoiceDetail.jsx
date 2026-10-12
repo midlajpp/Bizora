@@ -13,7 +13,10 @@ import {
   Plus,
   Ban,
   Trash2,
-  ArrowLeft
+  ArrowLeft,
+  Cloud,
+  ExternalLink,
+  Pencil
 } from 'lucide-react';
 import { getLogoUrl } from '../utils/logoUrl';
 import { generateOptimizedInvoicePdf } from '../utils/pdfGenerator';
@@ -23,12 +26,26 @@ const InvoiceDetail = () => {
   const [invoice, setInvoice] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Cash Modal
+  // Cash Modal (Add)
   const [isPayModalOpen, setIsPayModalOpen] = useState(false);
   const [payAmount, setPayAmount] = useState('');
   const [payDate, setPayDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [payNote, setPayNote] = useState('');
   const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
+
+  // Cash Modal (Edit)
+  const [isEditPayModalOpen, setIsEditPayModalOpen] = useState(false);
+  const [editingPayment, setEditingPayment] = useState(null);
+  const [editPayAmount, setEditPayAmount] = useState('');
+  const [editPayDate, setEditPayDate] = useState('');
+  const [editPayNote, setEditPayNote] = useState('');
+  const [isSubmittingEditPayment, setIsSubmittingEditPayment] = useState(false);
+  const [deletePaymentId, setDeletePaymentId] = useState(null);
+  const [isDeletingPayment, setIsDeletingPayment] = useState(false);
+
+  // Google Drive
+  const [isSavingDrive, setIsSavingDrive] = useState(false);
+  const [isDrivePromptOpen, setIsDrivePromptOpen] = useState(false);
 
   // Confirmations
   const [isCancelConfirm, setIsCancelConfirm] = useState(false);
@@ -269,6 +286,101 @@ const InvoiceDetail = () => {
     }
   };
 
+  const handleOpenEditPayment = (p) => {
+    setEditingPayment(p);
+    setEditPayAmount(p.amount);
+    setEditPayDate(p.paymentDate ? p.paymentDate.split('T')[0] : new Date().toISOString().split('T')[0]);
+    setEditPayNote(p.note || '');
+    setIsEditPayModalOpen(true);
+  };
+
+  const handleUpdatePayment = async (e) => {
+    e.preventDefault();
+    if (!editingPayment || !editPayAmount) return;
+
+    try {
+      setIsSubmittingEditPayment(true);
+      const res = await axiosClient.put(`/payments/${editingPayment._id}`, {
+        amount: Number(editPayAmount),
+        paymentDate: editPayDate,
+        note: editPayNote
+      });
+
+      if (res.data.success) {
+        showToast('Cash received record updated successfully!', 'success');
+        setIsEditPayModalOpen(false);
+        setEditingPayment(null);
+        fetchInvoice();
+      }
+    } catch (err) {
+      showToast(err.response?.data?.message || 'Failed to update cash record', 'error');
+    } finally {
+      setIsSubmittingEditPayment(false);
+    }
+  };
+
+  const handleDeleteSinglePayment = async () => {
+    if (!deletePaymentId) return;
+    try {
+      setIsDeletingPayment(true);
+      const res = await axiosClient.delete(`/payments/${deletePaymentId}`);
+      showToast(res.data.message || 'Cash record deleted successfully', 'success');
+      setDeletePaymentId(null);
+      fetchInvoice();
+    } catch (err) {
+      showToast(err.response?.data?.message || 'Failed to delete cash record', 'error');
+    } finally {
+      setIsDeletingPayment(false);
+    }
+  };
+
+  const handleSaveToGoogleDrive = async () => {
+    const exportContainer = pdfPaperRef.current || invoicePaperRef.current;
+    if (!exportContainer || !invoice) return;
+
+    try {
+      setIsSavingDrive(true);
+      const statusRes = await axiosClient.get('/google-drive/status');
+      if (!statusRes.data?.data?.isConnected) {
+        setIsDrivePromptOpen(true);
+        setIsSavingDrive(false);
+        return;
+      }
+
+      showToast('Generating and uploading PDF to Google Drive...', 'info');
+      const { blob } = await generateOptimizedInvoicePdf(exportContainer, invoice);
+
+      const formData = new FormData();
+      formData.append('pdfFile', blob, `${invoice.invoiceNumber}.pdf`);
+
+      const uploadRes = await axiosClient.post(
+        `/google-drive/upload-invoice/${invoice._id}`,
+        formData,
+        { headers: { 'Content-Type': 'multipart/form-data' } }
+      );
+
+      if (uploadRes.data.success) {
+        showToast(`Saved to Google Drive (${uploadRes.data.data.fileName})!`, 'success');
+        setInvoice((prev) => ({
+          ...prev,
+          googleDriveFile: uploadRes.data.data
+        }));
+      }
+    } catch (err) {
+      console.error('Drive upload error:', err);
+      showToast(err.response?.data?.message || 'Failed to save to Google Drive', 'error');
+    } finally {
+      setIsSavingDrive(false);
+    }
+  };
+
+  const otherPaymentsTotal = invoice && editingPayment
+    ? Math.max(0, (invoice.paidAmount || 0) - (editingPayment.amount || 0))
+    : 0;
+  const maxAllowedEditAmount = invoice
+    ? Math.max(0, Math.round(((invoice.total || 0) - otherPaymentsTotal) * 100) / 100)
+    : 0;
+
   const handleCancelInvoice = async () => {
     try {
       setIsProcessing(true);
@@ -358,23 +470,23 @@ const InvoiceDetail = () => {
           {pg.isPage1 ? (
             <>
               {/* Page 1 Header */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '2px solid #e2e8f0', paddingBottom: '1.5rem', marginBottom: '1.5rem', gap: '1.5rem' }}>
-                <div style={{ display: 'flex', gap: '1.25rem', alignItems: 'flex-start' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #e2e8f0', paddingBottom: '1.5rem', marginBottom: '1.5rem', gap: '1.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flex: 1, minWidth: 0 }}>
                   {business.businessLogo && (
-                    <div style={{ maxWidth: '140px', maxHeight: '70px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <div style={{ maxWidth: '300px', maxHeight: '95px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'flex-start' }}>
                       <img
                         src={getLogoUrl(business.businessLogo)}
                         alt={business.businessName || 'Business Logo'}
                         crossOrigin="anonymous"
-                        style={{ maxWidth: '140px', maxHeight: '70px', objectFit: 'contain', display: 'block' }}
+                        style={{ maxWidth: '300px', maxHeight: '95px', width: 'auto', height: 'auto', objectFit: 'contain', display: 'block' }}
                       />
                     </div>
                   )}
-                  <div>
-                    <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#0f172a', textTransform: 'uppercase', letterSpacing: '-0.02em' }}>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <h1 style={{ fontSize: '1.625rem', fontWeight: 800, color: '#0f172a', textTransform: 'uppercase', letterSpacing: '-0.02em', margin: 0, lineHeight: 1.2 }}>
                       {business.businessName || business.name || 'BIZORA'}
                     </h1>
-                    <div style={{ fontSize: '0.875rem', color: '#475569', marginTop: '0.25rem', lineHeight: 1.4 }}>
+                    <div style={{ fontSize: '0.875rem', color: '#475569', marginTop: '0.35rem', lineHeight: 1.45 }}>
                       {business.businessAddress && <div>{business.businessAddress}</div>}
                       {business.businessPhone && <div>Phone: {business.businessPhone}</div>}
                       {business.businessEmail && <div>Email: {business.businessEmail}</div>}
@@ -432,7 +544,7 @@ const InvoiceDetail = () => {
                     src={getLogoUrl(business.businessLogo)}
                     alt=""
                     crossOrigin="anonymous"
-                    style={{ maxHeight: '30px', maxWidth: '80px', objectFit: 'contain' }}
+                    style={{ maxHeight: '30px', maxWidth: '80px', objectFit: 'contain', display: 'block' }}
                   />
                 )}
                 <span style={{ fontSize: '1.125rem', fontWeight: 800, color: '#0f172a' }}>
@@ -558,6 +670,21 @@ const InvoiceDetail = () => {
           <button className="btn btn-secondary btn-sm" onClick={handleDownloadPDF}>
             <Download size={16} /> Download PDF
           </button>
+          <button className="btn btn-outline btn-sm" onClick={handleSaveToGoogleDrive} disabled={isSavingDrive} title="Save invoice PDF to Google Drive">
+            <Cloud size={16} /> {isSavingDrive ? 'Saving to Drive...' : 'Save to Drive'}
+          </button>
+          {invoice.googleDriveFile?.webViewLink && (
+            <a
+              href={invoice.googleDriveFile.webViewLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn btn-outline btn-sm"
+              style={{ color: '#2563eb', borderColor: 'rgba(37, 99, 235, 0.4)' }}
+              title="Open this invoice in Google Drive"
+            >
+              <ExternalLink size={16} /> View in Drive
+            </a>
+          )}
           <button className="btn btn-outline btn-sm" onClick={handleShare}>
             <Share2 size={16} /> Share
           </button>
@@ -610,23 +737,23 @@ const InvoiceDetail = () => {
       >
         {/* 1. Page 1 Header + Billed To */}
         <div ref={page1HeaderRef}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '2px solid #e2e8f0', paddingBottom: '1.5rem', marginBottom: '1.5rem', gap: '1.5rem' }}>
-            <div style={{ display: 'flex', gap: '1.25rem', alignItems: 'flex-start' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #e2e8f0', paddingBottom: '1.5rem', marginBottom: '1.5rem', gap: '1.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flex: 1, minWidth: 0 }}>
               {business.businessLogo && (
-                <div style={{ maxWidth: '140px', maxHeight: '70px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <div style={{ maxWidth: '300px', maxHeight: '95px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'flex-start' }}>
                   <img
                     src={getLogoUrl(business.businessLogo)}
                     alt=""
                     onLoad={computePagination}
-                    style={{ maxWidth: '140px', maxHeight: '70px', objectFit: 'contain', display: 'block' }}
+                    style={{ maxWidth: '300px', maxHeight: '95px', width: 'auto', height: 'auto', objectFit: 'contain', display: 'block' }}
                   />
                 </div>
               )}
-              <div>
-                <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#0f172a', textTransform: 'uppercase', letterSpacing: '-0.02em' }}>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <h1 style={{ fontSize: '1.625rem', fontWeight: 800, color: '#0f172a', textTransform: 'uppercase', letterSpacing: '-0.02em', margin: 0, lineHeight: 1.2 }}>
                   {business.businessName || business.name || 'BIZORA'}
                 </h1>
-                <div style={{ fontSize: '0.875rem', color: '#475569', marginTop: '0.25rem', lineHeight: 1.4 }}>
+                <div style={{ fontSize: '0.875rem', color: '#475569', marginTop: '0.35rem', lineHeight: 1.45 }}>
                   {business.businessAddress && <div>{business.businessAddress}</div>}
                   {business.businessPhone && <div>Phone: {business.businessPhone}</div>}
                   {business.businessEmail && <div>Email: {business.businessEmail}</div>}
@@ -854,6 +981,7 @@ const InvoiceDetail = () => {
                   <th>Date</th>
                   <th>Cash Received</th>
                   <th>Note</th>
+                  <th style={{ textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -862,6 +990,28 @@ const InvoiceDetail = () => {
                     <td>{formatDate(p.paymentDate)}</td>
                     <td style={{ fontWeight: 700, color: 'var(--primary)' }}>{formatCurrency(p.amount)}</td>
                     <td style={{ color: 'var(--text-subtle)' }}>{p.note || '—'}</td>
+                    <td style={{ textAlign: 'right' }}>
+                      <div style={{ display: 'inline-flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem', gap: '4px' }}
+                          onClick={() => handleOpenEditPayment(p)}
+                          title="Edit Cash Received"
+                        >
+                          <Pencil size={12} /> Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-danger btn-sm"
+                          style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
+                          onClick={() => setDeletePaymentId(p._id)}
+                          title="Delete Transaction"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -920,6 +1070,131 @@ const InvoiceDetail = () => {
             </button>
           </div>
         </form>
+      </Modal>
+
+      {/* Edit Cash Received Modal */}
+      <Modal
+        isOpen={isEditPayModalOpen}
+        onClose={() => {
+          setIsEditPayModalOpen(false);
+          setEditingPayment(null);
+        }}
+        title="Edit Cash Received Transaction"
+      >
+        <form onSubmit={handleUpdatePayment}>
+          <div className="form-group">
+            <label className="form-label">
+              Amount (₹) *
+              {maxAllowedEditAmount !== undefined && (
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '0.5rem' }}>
+                  (Max allowable: {formatCurrency(maxAllowedEditAmount)})
+                </span>
+              )}
+            </label>
+            <input
+              type="number"
+              min="0.01"
+              max={maxAllowedEditAmount}
+              step="any"
+              className="form-input"
+              value={editPayAmount}
+              onChange={(e) => setEditPayAmount(e.target.value)}
+              required
+            />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Received Date *</label>
+            <input
+              type="date"
+              className="form-input"
+              value={editPayDate}
+              onChange={(e) => setEditPayDate(e.target.value)}
+              required
+            />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Note / Remark</label>
+            <input
+              type="text"
+              className="form-input"
+              value={editPayNote}
+              onChange={(e) => setEditPayNote(e.target.value)}
+              placeholder="e.g. Received in cash"
+            />
+          </div>
+
+          <div className="modal-footer" style={{ paddingBottom: 0, paddingRight: 0 }}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => {
+                setIsEditPayModalOpen(false);
+                setEditingPayment(null);
+              }}
+            >
+              Cancel
+            </button>
+            <button type="submit" className="btn btn-primary" disabled={isSubmittingEditPayment}>
+              {isSubmittingEditPayment ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Delete Single Cash Record Confirm */}
+      <ConfirmDialog
+        isOpen={!!deletePaymentId}
+        onClose={() => setDeletePaymentId(null)}
+        onConfirm={handleDeleteSinglePayment}
+        title="Delete Cash Received Record"
+        message="Are you sure you want to delete this cash received record? The invoice pending cash and payment status will be recalculated automatically."
+        isLoading={isDeletingPayment}
+      />
+
+      {/* Google Drive Connect Prompt Modal */}
+      <Modal
+        isOpen={isDrivePromptOpen}
+        onClose={() => setIsDrivePromptOpen(false)}
+        title="Google Drive Not Connected"
+      >
+        <div style={{ textAlign: 'center', padding: '1rem 0' }}>
+          <div style={{
+            width: '56px',
+            height: '56px',
+            borderRadius: '50%',
+            background: 'rgba(59, 130, 246, 0.1)',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: '#3b82f6',
+            marginBottom: '1rem'
+          }}>
+            <Cloud size={32} />
+          </div>
+          <h4 style={{ fontWeight: 600, marginBottom: '0.5rem' }}>Connect Your Google Drive</h4>
+          <p style={{ color: 'var(--text-subtle)', fontSize: '0.875rem', lineHeight: 1.5, marginBottom: '1.5rem' }}>
+            To save and organize invoice PDFs in your personal Google Drive, please connect your account in Settings.
+          </p>
+          <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setIsDrivePromptOpen(false)}
+            >
+              Cancel
+            </button>
+            <Link
+              to="/profile#google-drive"
+              className="btn btn-primary"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}
+              onClick={() => setIsDrivePromptOpen(false)}
+            >
+              Go to Settings <ExternalLink size={14} />
+            </Link>
+          </div>
+        </div>
       </Modal>
 
       {/* Cancel Confirm */}
