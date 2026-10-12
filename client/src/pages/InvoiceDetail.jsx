@@ -16,8 +16,7 @@ import {
   ArrowLeft
 } from 'lucide-react';
 import { getLogoUrl } from '../utils/logoUrl';
-import html2canvas from 'html2canvas';
-import { jsPDF } from 'jspdf';
+import { generateOptimizedInvoicePdf } from '../utils/pdfGenerator';
 
 const InvoiceDetail = () => {
   const { id } = useParams();
@@ -219,40 +218,10 @@ const InvoiceDetail = () => {
     try {
       showToast('Generating print-ready A4 PDF document...', 'info');
       
-      const pageElements = exportContainer.querySelectorAll('.pdf-export-page, .invoice-paper-page');
-      if (!pageElements || pageElements.length === 0) return;
-
-      const pdf = new jsPDF('portrait', 'mm', 'a4');
-
-      for (let i = 0; i < pageElements.length; i++) {
-        const pageEl = pageElements[i];
-        await ensureImagesLoaded(pageEl);
-
-        const canvas = await html2canvas(pageEl, {
-          scale: 2,
-          useCORS: true,
-          allowTaint: true,
-          backgroundColor: '#ffffff',
-          windowWidth: 1200,
-          windowHeight: 1600,
-          scrollX: 0,
-          scrollY: 0,
-          x: 0,
-          y: 0
-        });
-
-        const imgData = canvas.toDataURL('image/png');
-
-        if (i > 0) {
-          pdf.addPage('a4', 'portrait');
-        }
-
-        // Exact A4 dimensions: 210mm x 297mm
-        pdf.addImage(imgData, 'PNG', 0, 0, 210, 297);
-      }
+      const { pdf, formattedSize } = await generateOptimizedInvoicePdf(exportContainer, invoice);
 
       pdf.save(`${invoice.invoiceNumber}.pdf`);
-      showToast('A4 PDF downloaded successfully!', 'success');
+      showToast(`A4 PDF downloaded successfully! (${formattedSize})`, 'success');
     } catch (err) {
       console.error('PDF Generation Error:', err);
       showToast('Failed to generate A4 PDF', 'error');
